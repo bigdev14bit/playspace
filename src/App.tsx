@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { Board } from './components/Board'
 import { StatusBar } from './components/StatusBar'
 import { ModePicker, type GameMode } from './components/ModePicker'
+import { AIBuddy } from './components/AIBuddy'
 import { getAIMove } from './game/ai'
+import type { AIMood } from './game/aiMood'
 import { createEmptyBoard, getNextPlayer, getWinner, getWinningLine, isDraw } from './game/logic'
 import type { Board as BoardType, GameStatus, Player, Winner } from './game/types'
 
@@ -16,42 +18,45 @@ export default function App() {
   const [winner, setWinner] = useState<Winner>(null)
   const [mode, setMode] = useState<GameMode>('local')
 
+  const isAIGame = mode !== 'local'
+  const isAITurn = isAIGame && currentPlayer === AI && status === 'playing'
   const winningLine = status === 'won' ? getWinningLine(board) : null
-  const isAITurn = mode !== 'local' && currentPlayer === AI && status === 'playing'
 
-  // ----- Game flow -----
-  function applyMove(board: BoardType, index: number, player: Player): BoardType {
-    const next = [...board]
+  // ----- AI mood derived from game state -----
+  let aiMood: AIMood = 'idle'
+  if (isAIGame) {
+    if (status === 'won' && winner === AI) aiMood = 'happy'
+    else if (status === 'won' && winner === HUMAN) aiMood = 'sad'
+    else if (status === 'draw') aiMood = 'neutral'
+    else if (isAITurn) aiMood = 'thinking'
+    else aiMood = 'pleased'
+  }
+
+  // ----- Move helpers -----
+  function applyMove(b: BoardType, index: number, player: Player): BoardType {
+    const next = [...b]
     next[index] = player
     return next
   }
 
   function resolveAfterMove(next: BoardType, player: Player) {
     setBoard(next)
-
     const w = getWinner(next)
-    if (w) {
-      setWinner(w)
-      setStatus('won')
-      return
-    }
-    if (isDraw(next)) {
-      setStatus('draw')
-      return
-    }
+    if (w) { setWinner(w); setStatus('won'); return }
+    if (isDraw(next)) { setStatus('draw'); return }
     setCurrentPlayer(getNextPlayer(player))
   }
 
   function handleCellClick(index: number) {
     if (status !== 'playing' || board[index] !== null) return
-    if (mode !== 'local' && currentPlayer === AI) return  // block during AI turn
+    if (isAIGame && currentPlayer === AI) return
     resolveAfterMove(applyMove(board, index, currentPlayer), currentPlayer)
   }
 
   // ----- AI turn -----
   useEffect(() => {
     if (!isAITurn) return
-    const delay = 400 + Math.random() * 300  // small "thinking" delay
+    const delay = 500 + Math.random() * 400
     const t = setTimeout(() => {
       const move = getAIMove(board, mode as 'easy' | 'medium' | 'impossible')
       resolveAfterMove(applyMove(board, move, AI), AI)
@@ -60,20 +65,17 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAITurn, board])
 
-  // ----- Reset -----
+  // ----- Reset / mode -----
   function handleReset() {
     setBoard(createEmptyBoard())
-    setCurrentPlayer('X')
+    setCurrentPlayer(HUMAN)
     setStatus('playing')
     setWinner(null)
   }
 
   function handleModeChange(next: GameMode) {
     setMode(next)
-    setBoard(createEmptyBoard())
-    setCurrentPlayer(HUMAN)
-    setStatus('playing')
-    setWinner(null)
+    handleReset()
   }
 
   return (
@@ -82,12 +84,15 @@ export default function App() {
 
       <ModePicker mode={mode} onChange={handleModeChange} />
 
-      <Board
-        board={board}
-        onCellClick={handleCellClick}
-        winningLine={winningLine}
-        disabled={status !== 'playing' || (mode !== 'local' && currentPlayer === AI)}
-      />
+      <div className="flex items-center gap-6">
+        <Board
+          board={board}
+          onCellClick={handleCellClick}
+          winningLine={winningLine}
+          disabled={status !== 'playing' || (isAIGame && currentPlayer === AI)}
+        />
+        {isAIGame && <AIBuddy mood={aiMood} />}
+      </div>
 
       <StatusBar
         status={status}
@@ -96,9 +101,7 @@ export default function App() {
         onReset={handleReset}
       />
 
-      {mode !== 'local' && (
-        <p className="text-xs text-slate-500">You are X · AI is O</p>
-      )}
+      {isAIGame && <p className="text-xs text-slate-500">You are X · AI is O</p>}
     </main>
   )
 }
